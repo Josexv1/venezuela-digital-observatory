@@ -16,13 +16,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Run status check
-        run: node monitor/check-status.js
+      - name: Download status.json from server
+        run: |
+          curl -sf "https://api-beta.macedoniadelnorte.com/monitor/status.json" -o monitor/status.json
+          echo "Downloaded status.json successfully"
 
       - name: Commit status.json
         run: |
