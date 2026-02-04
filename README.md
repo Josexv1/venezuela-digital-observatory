@@ -134,7 +134,7 @@ Environment variables for `monitor/check-status.js`:
 | `OUTPUT_FILE` | `monitor/status.json` | Output status JSON. |
 | `MONGO_URI` | - | Enables MongoDB writes when set. |
 | `TIMEOUT_MS` | `30000` | Lower is faster, higher is more accurate for slow sites. |
-| `CONCURRENCY` | `100` | Higher is faster but can increase timeouts. |
+| `CONCURRENCY` | `50` | Higher is faster but can increase timeouts. |
 | `MAX_CONCURRENCY` | auto | Max lanes during slow-ramp; higher is faster but riskier. |
 | `MAX_REDIRECTS` | `3` | Higher can improve accuracy for redirect-heavy sites. |
 | `RETRY_ATTEMPTS` | `2` | Lower is faster, higher can reduce false negatives. |
@@ -154,9 +154,15 @@ Environment variables for `monitor/check-status.js`:
 | `FORCE_IPV4` | `false` | `true` skips IPv6; often faster on Linux. |
 | `SKIP_DNS_RETRIES` | `false` | `true` skips retries for DNS errors; faster but less tolerant of flaky DNS. |
 | `REACHABILITY_ENABLED` | `true` | Collect DNS + TCP reachability signals. |
-| `DNS_TIMEOUT_MS` | `3000` | DNS lookup timeout for reachability. |
-| `TCP_TIMEOUT_MS` | `3000` | TCP connect timeout for reachability. |
+| `DNS_TIMEOUT_MS` | `5000` | DNS lookup timeout for reachability. |
+| `TCP_TIMEOUT_MS` | `5000` | TCP connect timeout for reachability. |
 | `TCP_PORTS` | `443,80` | TCP ports to probe, in order. |
+| `SECOND_PASS_ENABLED` | `false` | Recheck offline domains with longer timeouts. |
+| `SECOND_PASS_TIMEOUT_MS` | `45000` | HTTP timeout for the second pass. |
+| `SECOND_PASS_DNS_TIMEOUT_MS` | `5000` | DNS timeout for the second pass. |
+| `SECOND_PASS_TCP_TIMEOUT_MS` | `5000` | TCP timeout for the second pass. |
+| `SECOND_PASS_CONCURRENCY` | `25` | Concurrency for the second pass. |
+| `SECOND_PASS_RETRY_ATTEMPTS` | `2` | Retry count for the second pass. |
 | `LOG_MODE` | `progress` | `progress` shows the spinner only, `stream` logs key events, `fail` logs only offline + demote events. |
 | `LOG_CHECKPOINT_MS` | `30000` | Checkpoint interval for `stream`/`fail` modes. |
 | `LOG_FILE` | - | Write JSONL events to a file (use with `stream`/`fail`). |
@@ -171,6 +177,7 @@ Speed vs accuracy tips:
 5. Accuracy: increase `TIMEOUT_MS` or `RETRY_ATTEMPTS`.
 6. Accuracy: keep `REQUEST_METHOD=GET` (best compatibility).
 7. Debug: set `LOG_MODE=stream` for per-domain events, or `LOG_MODE=fail` to only log failures.
+8. Accuracy: enable `SECOND_PASS_ENABLED=true` to recheck offline domains with longer timeouts.
 
 ### Docker
 

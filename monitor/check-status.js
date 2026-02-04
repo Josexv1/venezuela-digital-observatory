@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '30000', 10);
-const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY || '100', 10));
+const CONCURRENCY = Math.max(1, parseInt(process.env.CONCURRENCY || '50', 10));
 const DEFAULT_MAX_CONCURRENCY = Math.min(1000, Math.max(CONCURRENCY * 4, CONCURRENCY + 50));
 const MAX_CONCURRENCY_RAW = parseInt(process.env.MAX_CONCURRENCY || String(DEFAULT_MAX_CONCURRENCY), 10);
 const MAX_CONCURRENCY = Math.max(CONCURRENCY, MAX_CONCURRENCY_RAW);
@@ -38,13 +38,19 @@ const MONGO_ENABLED = !!MONGO_URI;
 const FORCE_IPV4 = (process.env.FORCE_IPV4 || 'false').toLowerCase() === 'true';
 const SKIP_DNS_RETRIES = (process.env.SKIP_DNS_RETRIES || 'false').toLowerCase() === 'true';
 const REACHABILITY_ENABLED = (process.env.REACHABILITY_ENABLED || 'true').toLowerCase() === 'true';
-const DNS_TIMEOUT_MS = Math.max(0, parseInt(process.env.DNS_TIMEOUT_MS || '3000', 10));
-const TCP_TIMEOUT_MS = Math.max(0, parseInt(process.env.TCP_TIMEOUT_MS || '3000', 10));
+const DNS_TIMEOUT_MS = Math.max(0, parseInt(process.env.DNS_TIMEOUT_MS || '5000', 10));
+const TCP_TIMEOUT_MS = Math.max(0, parseInt(process.env.TCP_TIMEOUT_MS || '5000', 10));
 const TCP_PORTS_RAW = (process.env.TCP_PORTS || '443,80')
   .split(',')
   .map(value => parseInt(value.trim(), 10))
   .filter(value => Number.isFinite(value) && value > 0);
 const TCP_PORTS = TCP_PORTS_RAW.length > 0 ? TCP_PORTS_RAW : [443, 80];
+const SECOND_PASS_ENABLED = (process.env.SECOND_PASS_ENABLED || 'false').toLowerCase() === 'true';
+const SECOND_PASS_CONCURRENCY = Math.max(1, parseInt(process.env.SECOND_PASS_CONCURRENCY || '25', 10));
+const SECOND_PASS_TIMEOUT_MS = Math.max(0, parseInt(process.env.SECOND_PASS_TIMEOUT_MS || '45000', 10));
+const SECOND_PASS_DNS_TIMEOUT_MS = Math.max(0, parseInt(process.env.SECOND_PASS_DNS_TIMEOUT_MS || String(DNS_TIMEOUT_MS), 10));
+const SECOND_PASS_TCP_TIMEOUT_MS = Math.max(0, parseInt(process.env.SECOND_PASS_TCP_TIMEOUT_MS || String(TCP_TIMEOUT_MS), 10));
+const SECOND_PASS_RETRY_ATTEMPTS = Math.max(0, parseInt(process.env.SECOND_PASS_RETRY_ATTEMPTS || String(RETRY_ATTEMPTS), 10));
 const LOG_MODE_RAW = (process.env.LOG_MODE || 'progress').toLowerCase();
 const LOG_MODE = ['progress', 'stream', 'fail'].includes(LOG_MODE_RAW) ? LOG_MODE_RAW : 'progress';
 const LOG_CHECKPOINT_MS = Math.max(1000, parseInt(process.env.LOG_CHECKPOINT_MS || '30000', 10));
@@ -102,11 +108,11 @@ function withTimeout(promise, ms, timeoutCode) {
   });
 }
 
-async function resolveDNS(domain) {
+async function resolveDNS(domain, timeoutMs = DNS_TIMEOUT_MS) {
   const start = Date.now();
   const [v4Result, v6Result] = await Promise.allSettled([
-    withTimeout(dns.resolve4(domain), DNS_TIMEOUT_MS, 'DNS_TIMEOUT'),
-    withTimeout(dns.resolve6(domain), DNS_TIMEOUT_MS, 'DNS_TIMEOUT'),
+    withTimeout(dns.resolve4(domain), timeoutMs, 'DNS_TIMEOUT'),
+    withTimeout(dns.resolve6(domain), timeoutMs, 'DNS_TIMEOUT'),
   ]);
 
   const v4 = v4Result.status === 'fulfilled' ? v4Result.value : [];
@@ -148,7 +154,7 @@ function pickTcpTarget(domain, dnsInfo) {
   return { host: domain, family: undefined };
 }
 
-function probeTcp(host, port, family) {
+function probeTcp(host, port, family, timeoutMs = TCP_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const start = Date.now();
     const socket = new net.Socket();
@@ -162,8 +168,8 @@ function probeTcp(host, port, family) {
     };
 
     let timer = null;
-    if (TCP_TIMEOUT_MS > 0) {
-      timer = setTimeout(() => finish(false, 'TCP_TIMEOUT'), TCP_TIMEOUT_MS);
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => finish(false, 'TCP_TIMEOUT'), timeoutMs);
     }
 
     socket.once('connect', () => {
@@ -180,15 +186,15 @@ function probeTcp(host, port, family) {
   });
 }
 
-async function checkTcp(domain, dnsInfo) {
+async function checkTcp(domain, dnsInfo, timeoutMs = TCP_TIMEOUT_MS, ports = TCP_PORTS) {
   const target = pickTcpTarget(domain, dnsInfo);
   let lastError = null;
   let lastTime = null;
   let lastPort = null;
 
-  for (const port of TCP_PORTS) {
+  for (const port of ports) {
     lastPort = port;
-    const result = await probeTcp(target.host, port, target.family);
+    const result = await probeTcp(target.host, port, target.family, timeoutMs);
     lastTime = result.timeMs;
     if (result.ok) {
       return { ok: true, port, timeMs: result.timeMs, error: null };
@@ -204,14 +210,19 @@ async function checkTcp(domain, dnsInfo) {
   };
 }
 
-async function getReachability(domain) {
+async function getReachability(domain, overrides = {}) {
   if (!REACHABILITY_ENABLED) return null;
-  const dnsInfo = await resolveDNS(domain);
+  const dnsTimeoutMs = Number.isFinite(overrides.dnsTimeoutMs) ? overrides.dnsTimeoutMs : DNS_TIMEOUT_MS;
+  const tcpTimeoutMs = Number.isFinite(overrides.tcpTimeoutMs) ? overrides.tcpTimeoutMs : TCP_TIMEOUT_MS;
+  const tcpPorts = Array.isArray(overrides.tcpPorts) && overrides.tcpPorts.length > 0
+    ? overrides.tcpPorts
+    : TCP_PORTS;
+  const dnsInfo = await resolveDNS(domain, dnsTimeoutMs);
   let tcpInfo = null;
   if (!dnsInfo.ok) {
     tcpInfo = { ok: false, port: null, timeMs: null, error: 'DNS_FAIL' };
   } else {
-    tcpInfo = await checkTcp(domain, dnsInfo);
+    tcpInfo = await checkTcp(domain, dnsInfo, tcpTimeoutMs, tcpPorts);
   }
   return { dns: dnsInfo, tcp: tcpInfo };
 }
@@ -374,6 +385,7 @@ async function checkDomain(domain, options = {}) {
   let usedHttps = true;
   let sslInfo = null;
   const reachability = options.reachability || null;
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : TIMEOUT_MS;
   const abortSignal = options.abortSignal;
 
   const primaryMethod = REQUEST_METHOD === 'HEAD' ? 'HEAD' : 'GET';
@@ -397,11 +409,11 @@ async function checkDomain(domain, options = {}) {
 
   // Follow redirects - Default to GET for compatibility
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
-    result = await makeRequest(currentUrl, primaryMethod, TIMEOUT_MS, abortSignal);
+    result = await makeRequest(currentUrl, primaryMethod, timeoutMs, abortSignal);
 
     // If HEAD is blocked, retry once with GET to confirm status
     if (primaryMethod === 'HEAD' && result.success && [403, 405, 501].includes(result.httpCode)) {
-      result = await makeRequest(currentUrl, fallbackMethod, TIMEOUT_MS, abortSignal);
+      result = await makeRequest(currentUrl, fallbackMethod, timeoutMs, abortSignal);
     }
 
     // If HTTPS failed on first attempt, try HTTP
@@ -410,10 +422,10 @@ async function checkDomain(domain, options = {}) {
       currentUrl = `http://${domain}`;
       sslInfo = null; // No SSL for HTTP
 
-      result = await makeRequest(currentUrl, primaryMethod, TIMEOUT_MS, abortSignal);
+      result = await makeRequest(currentUrl, primaryMethod, timeoutMs, abortSignal);
 
       if (primaryMethod === 'HEAD' && result.success && [403, 405, 501].includes(result.httpCode)) {
-        result = await makeRequest(currentUrl, fallbackMethod, TIMEOUT_MS, abortSignal);
+        result = await makeRequest(currentUrl, fallbackMethod, timeoutMs, abortSignal);
       }
     }
 
@@ -476,10 +488,11 @@ async function checkDomainWithRetry(domain, options = {}) {
   const retries = Number.isFinite(options.retries) ? Math.max(0, options.retries) : RETRY_ATTEMPTS;
   const reachability = options.reachability
     ? options.reachability
-    : await getReachability(domain);
+    : await getReachability(domain, options.reachabilityOverrides);
   const checkOptions = {
     abortSignal: options.abortSignal,
     reachability,
+    timeoutMs: options.timeoutMs,
   };
   let result = await checkDomain(domain, checkOptions);
 
@@ -918,6 +931,40 @@ async function processWithConcurrency(domains, concurrency) {
   });
 }
 
+async function processSubsetWithConcurrency(items, concurrency, options) {
+  const total = items.length;
+  if (total === 0) return [];
+  const results = new Array(total);
+  let cursor = 0;
+  let inFlight = 0;
+  let done = 0;
+
+  return new Promise((resolve) => {
+    const pump = () => {
+      while (inFlight < concurrency && cursor < total) {
+        const item = items[cursor];
+        const currentIndex = cursor;
+        cursor++;
+        inFlight++;
+        checkDomainWithRetry(item.domain, options)
+          .then((result) => {
+            results[currentIndex] = { index: item.index, result };
+          })
+          .finally(() => {
+            inFlight--;
+            done++;
+            if (done >= total) {
+              resolve(results.filter(Boolean));
+              return;
+            }
+            pump();
+          });
+      }
+    };
+    pump();
+  });
+}
+
 // Save to MongoDB with retry (only if MONGO_URI is defined)
 async function saveToMongoDB(results, summary, checkDuration, maxRetries = 3) {
   if (!MONGO_ENABLED) {
@@ -1036,6 +1083,10 @@ async function main() {
     ? `Reachability: on (DNS ${DNS_TIMEOUT_MS}ms, TCP ${TCP_TIMEOUT_MS}ms, ports ${TCP_PORTS.join(',')})`
     : 'Reachability: off';
   console.log(reachabilityText);
+  const secondPassText = SECOND_PASS_ENABLED
+    ? `Second pass: on (timeout ${SECOND_PASS_TIMEOUT_MS}ms, DNS ${SECOND_PASS_DNS_TIMEOUT_MS}ms, TCP ${SECOND_PASS_TCP_TIMEOUT_MS}ms, concurrency ${SECOND_PASS_CONCURRENCY})`
+    : 'Second pass: off';
+  console.log(secondPassText);
   const logDetails = LOG_FILE ? `, file ${LOG_FILE}` : '';
   console.log(`Log mode: ${LOG_MODE}${logDetails}\n`);
   if (LOG_MODE !== 'progress') {
@@ -1046,7 +1097,52 @@ async function main() {
   }
 
   const startTime = Date.now();
-  const results = await processWithConcurrency(domains, CONCURRENCY);
+  let results = await processWithConcurrency(domains, CONCURRENCY);
+  let secondPassStats = null;
+
+  if (SECOND_PASS_ENABLED) {
+    const offlineEntries = results
+      .map((r, index) => ({ index, domain: r.domain, status: r.status }))
+      .filter(r => r.status === 'offline');
+
+    if (offlineEntries.length > 0) {
+      console.log('\n=== Second Pass ===\n');
+      console.log(`Rechecking ${offlineEntries.length} offline domains...`);
+      const secondStart = Date.now();
+      const secondResults = await processSubsetWithConcurrency(
+        offlineEntries,
+        SECOND_PASS_CONCURRENCY,
+        {
+          retries: SECOND_PASS_RETRY_ATTEMPTS,
+          timeoutMs: SECOND_PASS_TIMEOUT_MS,
+          reachabilityOverrides: {
+            dnsTimeoutMs: SECOND_PASS_DNS_TIMEOUT_MS,
+            tcpTimeoutMs: SECOND_PASS_TCP_TIMEOUT_MS,
+            tcpPorts: TCP_PORTS,
+          }
+        }
+      );
+
+      let recovered = 0;
+      secondResults.forEach(({ index, result }) => {
+        if (results[index].status === 'offline' && result.status === 'online') {
+          recovered++;
+        }
+        results[index] = result;
+      });
+
+      const durationSec = (Date.now() - secondStart) / 1000;
+      const stillOffline = offlineEntries.length - recovered;
+      secondPassStats = {
+        total: offlineEntries.length,
+        recovered,
+        stillOffline,
+        durationSec,
+      };
+      console.log(`Second pass done: recovered ${recovered}, still offline ${stillOffline}, time ${formatDuration(durationSec * 1000)}\n`);
+    }
+  }
+
   const elapsedSec = (Date.now() - startTime) / 1000;
   const elapsed = elapsedSec.toFixed(1);
 
@@ -1174,6 +1270,9 @@ async function main() {
   console.log(`  Run time: ${formatDuration(elapsedSec * 1000)} (${elapsed}s)`);
   console.log(`  Throughput: ${throughput.toFixed(2)} domains/s (${(throughput * 60).toFixed(1)}/min)`);
   console.log(`  Response (online): avg ${avgResponseText} | p50 ${p50Text} | p90 ${p90Text} | p95 ${p95Text}`);
+  if (secondPassStats) {
+    console.log(`  Second pass: rechecked ${secondPassStats.total} | recovered ${secondPassStats.recovered} | still offline ${secondPassStats.stillOffline} | time ${formatDuration(secondPassStats.durationSec * 1000)}`);
+  }
 
   console.log('\nHTTP codes:');
   console.log(`  2xx ${httpCodes['2xx']} | 3xx ${httpCodes['3xx']} | 4xx ${httpCodes['4xx']} | 5xx ${httpCodes['5xx']} | error/offline ${httpCodes.error}`);
