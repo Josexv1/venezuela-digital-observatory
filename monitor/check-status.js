@@ -1129,6 +1129,7 @@ async function main() {
   });
 
   const redirectsWith = results.filter(r => Array.isArray(r.redirects) && r.redirects.length > 0);
+  const redirectsOnline = redirectsWith.filter(r => r.status === 'online');
   const redirectTotal = redirectsWith.reduce((sum, r) => sum + r.redirects.length, 0);
   const redirectAvg = redirectsWith.length > 0 ? (redirectTotal / redirectsWith.length).toFixed(1) : '0.0';
   const redirectMax = redirectsWith.length > 0 ? Math.max(...redirectsWith.map(r => r.redirects.length)) : 0;
@@ -1146,6 +1147,11 @@ async function main() {
   const dnsFail = reachabilityResults.filter(r => r.reachability?.dns?.ok === false).length;
   const tcpOk = reachabilityResults.filter(r => r.reachability?.tcp?.ok === true).length;
   const tcpFail = reachabilityResults.filter(r => r.reachability?.tcp?.ok === false).length;
+  const reachableButHttpFailed = results.filter(r =>
+    r.status === 'offline' &&
+    r.reachability?.dns?.ok === true &&
+    r.reachability?.tcp?.ok === true
+  ).length;
   const timeoutReachable = results.filter(r =>
     r.status === 'offline' &&
     (r.error === 'TIMEOUT' || r.error === 'ETIMEDOUT') &&
@@ -1170,13 +1176,13 @@ async function main() {
   console.log(`  Response (online): avg ${avgResponseText} | p50 ${p50Text} | p90 ${p90Text} | p95 ${p95Text}`);
 
   console.log('\nHTTP codes:');
-  console.log(`  2xx ${httpCodes['2xx']} | 3xx ${httpCodes['3xx']} | 4xx ${httpCodes['4xx']} | 5xx ${httpCodes['5xx']} | error ${httpCodes.error}`);
+  console.log(`  2xx ${httpCodes['2xx']} | 3xx ${httpCodes['3xx']} | 4xx ${httpCodes['4xx']} | 5xx ${httpCodes['5xx']} | error/offline ${httpCodes.error}`);
 
   console.log('\nErrors (offline):');
   console.log(`  timeout ${errorBreakdown.timeout} | dns ${errorBreakdown.dns} | reset ${errorBreakdown.reset} | refused ${errorBreakdown.refused} | other ${errorBreakdown.other}`);
 
   console.log('\nRedirects:');
-  console.log(`  With redirects: ${redirectsWith.length} (${Math.round((redirectsWith.length / domains.length) * 100)}%) | avg chain ${redirectAvg} | max chain ${redirectMax}`);
+  console.log(`  With redirects: ${redirectsWith.length} (${Math.round((redirectsWith.length / domains.length) * 100)}% of all, ${Math.round((redirectsOnline.length / Math.max(1, online.length)) * 100)}% of online) | avg chain ${redirectAvg} | max chain ${redirectMax}`);
 
   console.log('\nSSL:');
   console.log(`  Valid ${validSSL.length} | Invalid ${invalidSSL.length} | Self-signed ${selfSigned} | Expiring <=30d ${expiringSoon}`);
@@ -1185,6 +1191,7 @@ async function main() {
     console.log('\nReachability:');
     console.log(`  DNS ok ${dnsOk} | DNS fail ${dnsFail}`);
     console.log(`  TCP ok ${tcpOk} | TCP fail ${tcpFail}`);
+    console.log(`  Reachable but HTTP failed ${reachableButHttpFailed}`);
     console.log(`  HTTP timeout with TCP ok ${timeoutReachable}`);
   } else {
     console.log('\nReachability: not collected');
