@@ -129,7 +129,7 @@ export default function DomainDetailPage() {
   const dnsError = reachability?.dns?.error || null;
   const tcpOk = reachability?.tcp?.ok;
   const tcpPort = reachability?.tcp?.port;
-  const tcpTime = reachability?.tcp?.timeMs;
+  const tcpTime: number | null = reachability?.tcp?.timeMs ?? null;
   const tcpError = reachability?.tcp?.error || null;
   const tcpStatus = tcpOk === true
     ? `${t('reachability.ok')} (${t('reachability.port')} ${tcpPort ?? '-'}, ${formatResponseTime(tcpTime)})`

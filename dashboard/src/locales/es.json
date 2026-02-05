@@ -110,6 +110,9 @@
     "loading": "Cargando dominios...",
     "resultsCount": "dominios"
   },
+  "common": {
+    "loading": "Cargando..."
+  },
   "domain": {
     "title": "Detalles del Dominio",
     "backToList": "Volver a la lista",
@@ -167,6 +170,20 @@
       "date": "Fecha",
       "status": "Estado",
       "time": "Tiempo"
+    },
+    "common": {
+      "loading": "Cargando...",
+      "error": "Ocurrió un error",
+      "retry": "Reintentar",
+      "close": "Cerrar",
+      "yes": "Sí",
+      "no": "No",
+      "ms": "ms",
+      "seconds": "segundos",
+      "online": "En línea",
+      "offline": "Fuera de línea",
+      "unknown": "Desconocido",
+      "notAvailable": "N/D"
     }
   },
   "trends": {
@@ -252,20 +269,6 @@
     "buyMeCoffee": "Invítame un café",
     "license": "Datos: CC0 Dominio Público",
     "disclaimer": "Este proyecto es independiente y no está afiliado a ninguna entidad gubernamental."
-  },
-  "common": {
-    "loading": "Cargando...",
-    "error": "Ocurrió un error",
-    "retry": "Reintentar",
-    "close": "Cerrar",
-    "yes": "Sí",
-    "no": "No",
-    "ms": "ms",
-    "seconds": "segundos",
-    "online": "En línea",
-    "offline": "Fuera de línea",
-    "unknown": "Desconocido",
-    "notAvailable": "N/D"
   },
   "status": {
     "online": "En línea",

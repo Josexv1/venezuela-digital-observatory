@@ -110,6 +110,9 @@
     "loading": "Loading domains...",
     "resultsCount": "domains"
   },
+  "common": {
+    "loading": "Loading..."
+  },
   "domain": {
     "title": "Domain Details",
     "backToList": "Back to list",
@@ -167,6 +170,20 @@
       "date": "Date",
       "status": "Status",
       "time": "Response Time"
+    },
+    "common": {
+      "loading": "Loading...",
+      "error": "An error occurred",
+      "retry": "Retry",
+      "close": "Close",
+      "yes": "Yes",
+      "no": "No",
+      "ms": "ms",
+      "seconds": "seconds",
+      "online": "Online",
+      "offline": "Offline",
+      "unknown": "Unknown",
+      "notAvailable": "N/A"
     }
   },
   "trends": {
@@ -252,20 +269,6 @@
     "buyMeCoffee": "Buy me a coffee",
     "license": "Data: CC0 Public Domain",
     "disclaimer": "This project is independent and not affiliated with any government entity."
-  },
-  "common": {
-    "loading": "Loading...",
-    "error": "An error occurred",
-    "retry": "Retry",
-    "close": "Close",
-    "yes": "Yes",
-    "no": "No",
-    "ms": "ms",
-    "seconds": "seconds",
-    "online": "Online",
-    "offline": "Offline",
-    "unknown": "Unknown",
-    "notAvailable": "N/A"
   },
   "status": {
     "online": "Online",
